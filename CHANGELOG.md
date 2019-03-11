@@ -1,23 +1,71 @@
 x.y.z Release notes (yyyy-MM-dd)
 =============================================================
 ### Enhancements
+* None.
+
+### Fixed
+* Fix a memory leak whenever Realm makes a HTTP(s) request to the Realm Object
+  Server (since 3.8.0, Issue [#6058](https://github.com/realm/realm-cocoa/issues/6058)).
+
+### Compatibility
+* File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
+* Realm Object Server: 3.11.0 or later.
+* APIs are backwards compatible with all previous releases in the 3.x.y series.
+
+3.13.1 Release notes (2019-01-03)
+=============================================================
+
+### Fixed
+
+* Fix a crash when iterating over `Realm.subscriptions()` using for-in.
+  (Since 3.13.0, PR [#6050](https://github.com/realm/realm-cocoa/pull/6050)).
+
+### Compatibility
+
+* File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
+* Realm Object Server: 3.11.0 or later.
+
+3.13.0 Release notes (2018-12-14)
+=============================================================
+
+### Enhancements
+
+* Add `Realm.subscriptions()`/`-[RLMRealm subscriptions]` and
+  `Realm.subscription(named:)`/`-[RLMRealm subscriptionWithName:]` to enable
+  looking up existing query-based sync subscriptions.
+  (PR: https://github.com/realm/realm-cocoa/pull/6029).
+
+### Compatibility
+
+* File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
+* Realm Object Server: 3.11.0 or later.
+
+3.12.0 Release notes (2018-11-26)
+=============================================================
+
+### Enhancements
+
 * Add a User-Agent header to HTTP requests made to the Realm Object Server. By
   default, this contains information about the Realm library version and your
   app's bundle ID. The application identifier can be customized by setting
   `RLMSyncManager.sharedManager.userAgent`/`SyncManager.shared.userAgent` prior
   to opening a synchronized Realm.
   (PR: https://github.com/realm/realm-cocoa/pull/6007).
+* Add Xcode 10.1 binary to the prebuilt package.
 
 ### Fixed
-* <How to hit and notice issue? what was the impact?> ([#????](https://github.com/realm/realm-js/issues/????), since v?.?.?)
+
 * None.
 
-<!-- ### Breaking Changes - ONLY INCLUDE FOR NEW MAJOR version -->
-
 ### Compatibility
+
 * File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
 * Realm Object Server: 3.11.0 or later.
-* APIs are backwards compatible with all previous releases in the 3.x.y series.
+
+### Internal
+
+* None.
+
 
 3.11.2 Release notes (2018-11-15)
 =============================================================
@@ -45,8 +93,17 @@ x.y.z Release notes (yyyy-MM-dd)
 * File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
 * Realm Object Server: 3.11.0 or later.
 
+### Internal
+
+* None.
+
+
 3.11.1 Release notes (2018-10-19)
 =============================================================
+
+### Enhancements
+
+* None.
 
 ### Fixed
 
@@ -62,6 +119,11 @@ x.y.z Release notes (yyyy-MM-dd)
 
 * File format: Generates Realms with format v9 (Reads and upgrades all previous formats)
 * Realm Object Server: 3.11.0 or later.
+
+### Internal
+
+* None.
+
 
 3.11.0 Release notes (2018-10-04)
 =============================================================
@@ -91,6 +153,7 @@ x.y.z Release notes (yyyy-MM-dd)
 
 ### Internal
 * Update to Sync 3.12.2.
+
 
 3.10.0 Release notes (2018-09-19)
 =============================================================
