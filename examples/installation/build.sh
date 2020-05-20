@@ -12,26 +12,37 @@ command:
 
   test-ios-objc-static:            tests iOS Objective-C static example.
   test-ios-objc-dynamic:           tests iOS Objective-C dynamic example.
+  test-ios-objc-xcframework:       tests iOS Objective-C xcframework example.
   test-ios-objc-cocoapods:         tests iOS Objective-C CocoaPods example.
   test-ios-objc-cocoapods-dynamic: tests iOS Objective-C CocoaPods Dynamic example.
   test-ios-objc-carthage:          tests iOS Objective-C Carthage example.
   test-ios-swift-dynamic:          tests iOS Swift dynamic example.
+  test-ios-swift-xcframework:      tests iOS Swift xcframework example.
   test-ios-swift-cocoapods:        tests iOS Swift CocoaPods example.
-  test-ios-swift-carthage:         tests iOS Objective-C Carthage example.
+  test-ios-swift-carthage:         tests iOS Swift Carthage example.
+  test-ios-spm:                    tests iOS Swift Package Manager example.
 
-  test-osx-objc-dynamic:           tests OS X Objective-C dynamic example.
-  test-osx-objc-cocoapods:         tests OS X Objective-C CocoaPods example.
-  test-osx-objc-carthage:          tests OS X Objective-C Carthage example.
-  test-osx-swift-dynamic:          tests OS X Swift dynamic example.
-  test-osx-swift-cocoapods:        tests OS X Swift CocoaPods example.
-  test-osx-swift-carthage:         tests OS X Swift Carthage example.
+  test-osx-objc-dynamic:           tests macOS Objective-C dynamic example.
+  test-osx-objc-xcframework:       tests macOS Objective-C xcframework example.
+  test-osx-objc-cocoapods:         tests macOS Objective-C CocoaPods example.
+  test-osx-objc-carthage:          tests macOS Objective-C Carthage example.
+  test-osx-swift-dynamic:          tests macOS Swift dynamic example.
+  test-osx-swift-xcframework:      tests macOS Swift xcframework example.
+  test-osx-swift-cocoapods:        tests macOS Swift CocoaPods example.
+  test-osx-swift-carthage:         tests macOS Swift Carthage example.
+  test-osx-spm:                    tests macOS Swift Package Manager example.
 
   test-watchos-objc-dynamic:       tests watchOS Objective-C dynamic example.
+  test-watchos-objc-xcframework:   tests watchOS Objective-C xcframework example.
   test-watchos-objc-cocoapods:     tests watchOS Objective-C CocoaPods example.
   test-watchos-objc-carthage:      tests watchOS Objective-C Carthage example.
   test-watchos-swift-dynamic:      tests watchOS Swift dynamic example.
+  test-watchos-swift-xcframework:  tests watchOS Swift xcframework example.
   test-watchos-swift-cocoapods:    tests watchOS Swift CocoaPods example.
   test-watchos-swift-carthage:     tests watchOS Swift Carthage example.
+  test-watchos-spm:                tests watchOS Swift Package Manager example.
+
+  test-tvos-spm:                   tests tvOS Swift Package Manager example.
 EOF
 }
 
@@ -42,25 +53,27 @@ export EXPANDED_CODE_SIGN_IDENTITY=''
 
 download_zip_if_needed() {
     LANG="$1"
-    DIRECTORY=realm-$LANG-latest
-    if [ ! -d $DIRECTORY ]; then
-        curl -o $DIRECTORY.zip -L https://static.realm.io/downloads/$LANG/latest
-        unzip $DIRECTORY.zip
-        rm $DIRECTORY.zip
-        mv realm-$LANG-* $DIRECTORY
+    local DIRECTORY=realm-$LANG-latest
+    if [ ! -d "$DIRECTORY" ]; then
+        curl -o "$DIRECTORY".zip -L https://static.realm.io/downloads/"$LANG"/latest
+        unzip "$DIRECTORY".zip
+        rm "$DIRECTORY".zip
+        mv realm-"$LANG"-* "$DIRECTORY"
     fi
 }
 
+xcode_version_major() {
+    echo "${REALM_XCODE_VERSION%%.*}"
+}
+
 xctest() {
-    PLATFORM="$1"
-    LANG="$2"
-    NAME="$3"
-    DIRECTORY="$PLATFORM/$LANG/$NAME"
+    local PLATFORM="$1"
+    local LANG="$2"
+    local NAME="$3"
+    local DIRECTORY="$PLATFORM/$LANG/$NAME"
     if [[ ! -d "$DIRECTORY" ]]; then
         DIRECTORY="${DIRECTORY/swift/swift-$REALM_SWIFT_VERSION}"
     fi
-    PROJECT="$DIRECTORY/$NAME.xcodeproj"
-    WORKSPACE="$DIRECTORY/$NAME.xcworkspace"
     if [[ $PLATFORM == ios ]]; then
         sh "$(dirname "$0")/../../scripts/reset-simulators.sh"
     fi
@@ -85,123 +98,90 @@ xctest() {
     elif [[ $LANG == swift* ]]; then
         download_zip_if_needed swift
     else
-        download_zip_if_needed $LANG
+        download_zip_if_needed "$LANG"
     fi
-    DESTINATION=""
+    local DESTINATION=()
     if [[ $PLATFORM == ios ]]; then
         simulator_id="$(xcrun simctl list devices | grep -v unavailable | grep -m 1 -o '[0-9A-F\-]\{36\}')"
-        xcrun simctl boot $simulator_id
-        DESTINATION="-destination id=$simulator_id"
+        xcrun simctl boot "$simulator_id"
+        DESTINATION=(-destination "id=$simulator_id")
     elif [[ $PLATFORM == watchos ]]; then
-        if xcrun simctl list devicetypes | grep -q 'iPhone Xs'; then
-            DESTINATION="-destination id=$(xcrun simctl list devices | grep -v unavailable | grep 'iPhone Xs' | grep -m 1 -o '[0-9A-F\-]\{36\}')"
+        if xcrun simctl list devicetypes | grep -q 'iPhone 11 Pro Max'; then
+            DESTINATION=(-destination "id=$(xcrun simctl list devices | grep -v unavailable | grep 'iPhone 11 Pro Max' | grep -m 1 -o '[0-9A-F\-]\{36\}')")
+        elif xcrun simctl list devicetypes | grep -q 'iPhone Xs'; then
+            DESTINATION=(-destination "id=$(xcrun simctl list devices | grep -v unavailable | grep 'iPhone Xs' | grep -m 1 -o '[0-9A-F\-]\{36\}')")
         fi
     fi
-    CMD="-project $PROJECT"
-    if [ -d $WORKSPACE ]; then
-        CMD="-workspace $WORKSPACE"
+
+    local PROJECT=(-project "$DIRECTORY/$NAME.xcodeproj")
+    local WORKSPACE="$DIRECTORY/$NAME.xcworkspace"
+    if [ -d "$WORKSPACE" ]; then
+        PROJECT=(-workspace "$WORKSPACE")
     fi
-    ACTION=""
-    if [[ $PLATFORM == watchos ]]; then
-        ACTION="build"
-    else
-        ACTION="build test"
+    sed -i '' 's@/swift-[0-9.]*@/swift-11.4.1@' "$DIRECTORY/$NAME.xcodeproj/project.pbxproj"
+    xcodebuild "${PROJECT[@]}" -scheme "$NAME" clean build "${DESTINATION[@]}" CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO
+    if [[ $PLATFORM != watchos ]]; then
+        xcodebuild "${PROJECT[@]}" -scheme "$NAME" test "${DESTINATION[@]}" CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO
     fi
-    if [[ $PLATFORM == ios ]]; then
-        xcodebuild $CMD -scheme $NAME clean $ACTION $DESTINATION CODE_SIGN_IDENTITY=
-    else
-        xcodebuild $CMD -scheme $NAME clean $ACTION $DESTINATION CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO
+
+    if [[ $NAME == CocoaPods* ]] && [[ $PLATFORM != osx ]]; then
+        [[ $PLATFORM == 'ios' ]] && SDK=iphoneos || SDK=$PLATFORM
+        [[ $LANG == 'swift' ]] && SCHEME=RealmSwift || SCHEME=Realm
+        xcodebuild "${PROJECT[@]}" -scheme "$SCHEME" -sdk "$SDK" ONLY_ACTIVE_ARCH=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build
     fi
 }
 
+swiftpm() {
+    PLATFORM="$1"
+    cd SwiftPMExample
+    xcrun swift build
+}
+
+# shellcheck source=../../scripts/swift-version.sh
 source "$(dirname "$0")/../../scripts/swift-version.sh"
 set_xcode_and_swift_versions # exports REALM_SWIFT_VERSION, REALM_XCODE_VERSION, and DEVELOPER_DIR variables if not already set
+
+PLATFORM=$(echo "$COMMAND" | cut -d - -f 2)
+LANGUAGE=$(echo "$COMMAND" | cut -d - -f 3)
 
 case "$COMMAND" in
     "test-all")
         for target in ios-swift-dynamic ios-swift-cocoapods osx-swift-dynamic ios-swift-carthage osx-swift-carthage; do
             ./build.sh test-$target || exit 1
         done
+        if (( $(xcode_version_major) >= 11 )); then
+            for target in ios osx watchos tvos; do
+                ./build.sh test-$target-spm || exit 1
+            done
+        fi
         ;;
 
-    "test-ios-objc-static")
-        xctest ios objc StaticExample
+    test-*-*-cocoapods)
+        xctest "$PLATFORM" "$LANGUAGE" CocoaPodsExample
         ;;
 
-    "test-ios-objc-dynamic")
-        xctest ios objc DynamicExample
+    test-*-*-cocoapods-dynamic)
+        xctest "$PLATFORM" "$LANGUAGE" CocoaPodsDynamicExample
         ;;
 
-    "test-ios-objc-cocoapods")
-        xctest ios objc CocoaPodsExample
+    test-*-*-static)
+        xctest "$PLATFORM" "$LANGUAGE" StaticExample
         ;;
 
-    "test-ios-objc-cocoapods-dynamic")
-        xctest ios objc CocoaPodsDynamicExample
+    test-*-*-dynamic)
+        xctest "$PLATFORM" "$LANGUAGE" DynamicExample
         ;;
 
-    "test-ios-objc-carthage")
-        xctest ios objc CarthageExample
+    test-*-*-xcframework)
+        xctest "$PLATFORM" "$LANGUAGE" XCFrameworkExample
         ;;
 
-    "test-ios-swift-dynamic")
-        xctest ios swift DynamicExample
+    test-*-*-carthage)
+        xctest "$PLATFORM" "$LANGUAGE" CarthageExample
         ;;
 
-    "test-ios-swift-cocoapods")
-        xctest ios swift CocoaPodsExample
-        ;;
-
-    "test-ios-swift-carthage")
-        xctest ios swift CarthageExample
-        ;;
-
-    "test-osx-objc-dynamic")
-        xctest osx objc DynamicExample
-        ;;
-
-    "test-osx-objc-cocoapods")
-        xctest osx objc CocoaPodsExample
-        ;;
-
-    "test-osx-objc-carthage")
-        xctest osx objc CarthageExample
-        ;;
-
-    "test-osx-swift-dynamic")
-        xctest osx swift DynamicExample
-        ;;
-
-    "test-osx-swift-cocoapods")
-        xctest osx swift CocoaPodsExample
-        ;;
-
-    "test-osx-swift-carthage")
-        xctest osx swift CarthageExample
-        ;;
-
-    "test-watchos-objc-dynamic")
-        xctest watchos objc DynamicExample
-        ;;
-
-    "test-watchos-objc-cocoapods")
-        xctest watchos objc CocoaPodsExample
-        ;;
-
-    "test-watchos-objc-carthage")
-        xctest watchos objc CarthageExample
-        ;;
-
-    "test-watchos-swift-dynamic")
-        xctest watchos swift DynamicExample
-        ;;
-
-    "test-watchos-swift-cocoapods")
-        xctest watchos swift CocoaPodsExample
-        ;;
-
-    "test-watchos-swift-carthage")
-        xctest watchos swift CarthageExample
+    test-*-spm)
+        swiftpm "$PLATFORM"
         ;;
 
     *)

@@ -81,6 +81,7 @@ extension RLMCollection {
 
 // MARK: - Sync-related
 
+#if REALM_ENABLE_SYNC
 extension RLMSyncManager {
     public static var shared: RLMSyncManager {
         return __shared()
@@ -135,8 +136,4 @@ extension RLMSyncSession {
                                          block: block)
     }
 }
-
-extension RLMNotificationToken {
-    @available(*, unavailable, renamed: "invalidate()")
-    @nonobjc public func stop() { fatalError() }
-}
+#endif
