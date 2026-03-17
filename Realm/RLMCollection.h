@@ -559,6 +559,19 @@ NS_SWIFT_SENDABLE RLM_FINAL
 
 @end
 
+@class RLMPropertyChange;
+
+/**
+ `RLMObjectModification` describes the changes to a single object within a
+ collection notification, including which properties changed.
+ */
+@interface RLMObjectModification : NSObject
+/// The index of the object in the new version of the collection.
+@property (nonatomic, readonly) NSUInteger index;
+/// The properties that changed on this object.
+@property (nonatomic, readonly) NSArray<RLMPropertyChange *> *properties;
+@end
+
 /**
  A `RLMCollectionChange` object encapsulates information about changes to collections
  that are reported by Realm notifications.
@@ -608,6 +621,16 @@ NS_SWIFT_SENDABLE RLM_FINAL
 
 /// Returns the index paths of the modification indices in the given section.
 - (NSArray<NSIndexPath *> *)modificationsInSection:(NSUInteger)section;
+
+/**
+ Per-object modification details for the current notification. Each entry
+ corresponds to one modified object and lists which properties changed on it.
+
+ This array is parallel to `modifications`: `propertyChanges[i].index` equals
+ `modifications[i]`. It is empty when no schema information is available (e.g.
+ for unmanaged collections).
+ */
+@property (nonatomic, readonly) NSArray<RLMObjectModification *> *propertyChanges;
 @end
 
 RLM_HEADER_AUDIT_END(nullability, sendability)

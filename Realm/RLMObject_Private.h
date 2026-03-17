@@ -100,6 +100,10 @@ FOUNDATION_EXTERN uint64_t RLMObjectBaseGetCombineId(RLMObjectBase *);
 + (void)set:(RLMProperty *)property on:(RLMObjectBase *)parent to:(id)value;
 @end
 
+@interface RLMPropertyChange ()
++ (instancetype)propertyChangeWithName:(NSString *)name;
+@end
+
 @interface RLMObjectNotificationToken : RLMNotificationToken
 - (void)observe:(RLMObjectBase *)obj
        keyPaths:(nullable NSArray<NSString *> *)keyPaths

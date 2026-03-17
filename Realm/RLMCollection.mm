@@ -399,16 +399,57 @@ std::vector<std::pair<std::string, bool>> RLMSortDescriptorsToKeypathArray(NSArr
     return keypaths;
 }
 
+@implementation RLMObjectModification
+- (instancetype)initWithIndex:(NSUInteger)index properties:(NSArray<RLMPropertyChange *> *)properties {
+    if (self = [super init]) {
+        _index = index;
+        _properties = properties;
+    }
+    return self;
+}
+@end
+
 @implementation RLMCollectionChange {
     realm::CollectionChangeSet _indices;
 }
 
-- (instancetype)initWithChanges:(realm::CollectionChangeSet)indices {
+- (instancetype)initWithChanges:(realm::CollectionChangeSet)indices
+                     objectInfo:(RLMClassInfo *)info {
     self = [super init];
     if (self) {
         _indices = std::move(indices);
+        _propertyChanges = buildPropertyChanges(_indices, info);
     }
     return self;
+}
+
+static NSArray<RLMObjectModification *> *buildPropertyChanges(realm::CollectionChangeSet const& indices,
+                                                               RLMClassInfo *info) {
+    NSMutableArray *result = [NSMutableArray new];
+    if (!info || indices.columns.empty()) {
+        for (auto idx : indices.modifications.as_indexes()) {
+            [result addObject:[[RLMObjectModification alloc] initWithIndex:idx properties:@[]]];
+        }
+        return result;
+    }
+    // Invert the columns map (ColKey -> IndexSet of collection indices) to
+    // build a per-object list of changed property names.
+    NSMutableDictionary<NSNumber *, NSMutableArray<RLMPropertyChange *> *> *byIndex = [NSMutableDictionary new];
+    for (auto& [colKeyVal, indexSet] : indices.columns) {
+        RLMProperty *prop = info->propertyForTableColumn(realm::ColKey(colKeyVal));
+        if (!prop) continue;
+        RLMPropertyChange *change = [RLMPropertyChange propertyChangeWithName:prop.name];
+        for (auto idx : indexSet.as_indexes()) {
+            NSNumber *key = @(idx);
+            if (!byIndex[key]) byIndex[key] = [NSMutableArray new];
+            [byIndex[key] addObject:change];
+        }
+    }
+    for (auto idx : indices.modifications.as_indexes()) {
+        [result addObject:[[RLMObjectModification alloc] initWithIndex:idx
+                                                            properties:byIndex[@(idx)] ?: @[]]];
+    }
+    return result;
 }
 
 static NSArray *toArray(realm::IndexSet const& set) {
@@ -465,7 +506,9 @@ struct CollectionCallbackWrapper {
             block(collection, nil, nil);
         }
         else if (!changes.collection_root_was_deleted || !changes.deletions.empty()) {
-            block(collection, [[RLMCollectionChange alloc] initWithChanges:changes], nil);
+            RLMClassInfo *info = [collection respondsToSelector:@selector(objectInfo)]
+                ? ((id<RLMCollectionPrivate>)collection).objectInfo : nil;
+            block(collection, [[RLMCollectionChange alloc] initWithChanges:changes objectInfo:info], nil);
         }
     }
 };

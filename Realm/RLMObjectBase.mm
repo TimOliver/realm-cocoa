@@ -651,6 +651,11 @@ struct ObjectChangeCallbackWrapper {
 @end
 
 @implementation RLMPropertyChange
++ (instancetype)propertyChangeWithName:(NSString *)name {
+    RLMPropertyChange *change = [self new];
+    change.name = name;
+    return change;
+}
 - (NSString *)description {
     return [NSString stringWithFormat:@"<RLMPropertyChange: %p> %@ %@ -> %@",
             (__bridge void *)self, _name, _previousValue, _value];
