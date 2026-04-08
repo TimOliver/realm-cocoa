@@ -600,6 +600,16 @@ NS_SWIFT_SENDABLE RLM_FINAL
  */
 @property (nonatomic, readonly) NSArray<NSNumber *> *modifications;
 
+/**
+ A dictionary mapping each index from `modifications` (in the new collection)
+ to the names of the properties that changed on the object at that index.
+
+ Only scalar properties are tracked; `List`, `Set`, and `Dictionary` properties
+ are excluded. `nil` if no scalar property changes were detected (e.g. the
+ notification contained only insertions or deletions).
+ */
+@property (nonatomic, readonly, nullable) NSDictionary<NSNumber *, NSArray<NSString *> *> *modifiedProperties;
+
 /// Returns the index paths of the deletion indices in the given section.
 - (NSArray<NSIndexPath *> *)deletionsInSection:(NSUInteger)section;
 
@@ -608,6 +618,7 @@ NS_SWIFT_SENDABLE RLM_FINAL
 
 /// Returns the index paths of the modification indices in the given section.
 - (NSArray<NSIndexPath *> *)modificationsInSection:(NSUInteger)section;
+
 @end
 
 RLM_HEADER_AUDIT_END(nullability, sendability)

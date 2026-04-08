@@ -401,6 +401,7 @@ std::vector<std::pair<std::string, bool>> RLMSortDescriptorsToKeypathArray(NSArr
 
 @implementation RLMCollectionChange {
     realm::CollectionChangeSet _indices;
+    NSDictionary<NSNumber *, NSArray<NSString *> *> *_propertiesByIndex;
 }
 
 - (instancetype)initWithChanges:(realm::CollectionChangeSet)indices {
@@ -409,6 +410,20 @@ std::vector<std::pair<std::string, bool>> RLMSortDescriptorsToKeypathArray(NSArr
         _indices = std::move(indices);
     }
     return self;
+}
+
+- (instancetype)initWithChanges:(realm::CollectionChangeSet)indices
+              propertiesByIndex:(NSDictionary<NSNumber *, NSArray<NSString *> *> *)propertiesByIndex {
+    self = [super init];
+    if (self) {
+        _indices = std::move(indices);
+        _propertiesByIndex = propertiesByIndex;
+    }
+    return self;
+}
+
+- (NSDictionary<NSNumber *, NSArray<NSString *> *> *)modifiedProperties {
+    return _propertiesByIndex.count ? _propertiesByIndex : nil;
 }
 
 static NSArray *toArray(realm::IndexSet const& set) {
@@ -453,19 +468,90 @@ static NSArray *toArray(realm::IndexSet const& set) {
 namespace {
 struct CollectionCallbackWrapper {
     void (^block)(id, id, NSError *);
-    id collection;
-    bool ignoreChangesInInitialNotification;
+    id<RLMCollectionPrivate> collection;
+    bool ignoreChangesInInitialNotification = true;
 
-    void operator()(realm::CollectionChangeSet const& changes) {
-        if (ignoreChangesInInitialNotification) {
-            ignoreChangesInInitialNotification = false;
-            block(collection, nil, nil);
+    // Keyed by old modification index → {propertyName → value}.
+    // Populated in before() and consumed in after().
+    NSMutableDictionary<NSNumber *, NSDictionary<NSString *, id> *> *oldValuesByIndex;
+
+    static NSDictionary<NSString *, id> *snapshotScalars(id obj, RLMClassInfo *info) {
+        NSMutableDictionary *snap = [NSMutableDictionary new];
+        for (RLMProperty *prop in info->rlmObjectSchema.properties) {
+            // Skip collection-type properties — they are live objects and
+            // cannot be meaningfully snapshot-diffed at this level.
+            if (prop.collection) {
+                continue;
+            }
+            id val = [obj valueForKey:prop.name];
+            snap[prop.name] = val ?: NSNull.null;
         }
-        else if (changes.empty()) {
-            block(collection, nil, nil);
+        return snap;
+    }
+
+    void before(realm::CollectionChangeSet const& changes) {
+        @autoreleasepool {
+            if (changes.modifications.empty()) {
+                return;
+            }
+            RLMClassInfo *info = collection.objectInfo;
+            if (!info) {
+                return;
+            }
+            oldValuesByIndex = [NSMutableDictionary new];
+            for (auto idx : changes.modifications.as_indexes()) {
+                id obj = [(id<RLMCollection>)collection objectAtIndex:idx];
+                oldValuesByIndex[@(idx)] = snapshotScalars(obj, info);
+            }
         }
-        else if (!changes.collection_root_was_deleted || !changes.deletions.empty()) {
-            block(collection, [[RLMCollectionChange alloc] initWithChanges:changes], nil);
+    }
+
+    void after(realm::CollectionChangeSet const& changes) {
+        @autoreleasepool {
+            if (ignoreChangesInInitialNotification) {
+                ignoreChangesInInitialNotification = false;
+                oldValuesByIndex = nil;
+                block(collection, nil, nil);
+                return;
+            }
+            if (changes.empty()) {
+                block(collection, nil, nil);
+                return;
+            }
+            if (!changes.collection_root_was_deleted || !changes.deletions.empty()) {
+                NSMutableDictionary<NSNumber *, NSArray<NSString *> *> *propsByIndex;
+                if (oldValuesByIndex.count > 0) {
+                    RLMClassInfo *info = collection.objectInfo;
+                    if (info) {
+                        propsByIndex = [NSMutableDictionary new];
+                        // modifications (old indices) and modifications_new (new indices)
+                        // always have the same count and refer to the same objects.
+                        auto oldIt = changes.modifications.as_indexes().begin();
+                        auto newIt = changes.modifications_new.as_indexes().begin();
+                        auto end   = changes.modifications.as_indexes().end();
+                        for (; oldIt != end; ++oldIt, ++newIt) {
+                            NSDictionary *snap = oldValuesByIndex[@(*oldIt)];
+                            if (!snap) continue;
+                            id obj = [(id<RLMCollection>)collection objectAtIndex:*newIt];
+                            NSMutableArray *changed = [NSMutableArray new];
+                            for (NSString *name in snap) {
+                                id newVal = [obj valueForKey:name] ?: NSNull.null;
+                                if (![newVal isEqual:snap[name]]) {
+                                    [changed addObject:name];
+                                }
+                            }
+                            if (changed.count) {
+                                propsByIndex[@(*newIt)] = changed;
+                            }
+                        }
+                    }
+                }
+                oldValuesByIndex = nil;
+                block(collection,
+                      [[RLMCollectionChange alloc] initWithChanges:changes
+                                                 propertiesByIndex:propsByIndex],
+                      nil);
+            }
         }
     }
 };
