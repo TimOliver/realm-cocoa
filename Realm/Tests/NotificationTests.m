@@ -2117,3 +2117,86 @@ static void ExpectMixedArrayChange(RLMTestCase<ChangesetTestCase> *self, NSArray
 
 @end
 
+// MARK: - Granular Property Notifications
+
+@interface ModifiedPropertiesTests : RLMTestCase
+@end
+
+@implementation ModifiedPropertiesTests
+
+// Triggers a write and returns the resulting RLMCollectionChange, or nil if none was produced.
+- (RLMCollectionChange *)changeFromBlock:(void (^)(RLMRealm *))block
+                                 results:(RLMResults *)results {
+    __block bool first = true;
+    __block RLMCollectionChange *captured = nil;
+    id token = [results addNotificationBlock:^(RLMResults *results, RLMCollectionChange *c, NSError *e) {
+        XCTAssertNil(e);
+        captured = c;
+        XCTAssertTrue(first == !c);
+        first = false;
+        CFRunLoopStop(CFRunLoopGetCurrent());
+    }];
+    CFRunLoopRun(); // drain initial notification
+
+    [self waitForNotification:RLMRealmDidChangeNotification realm:RLMRealm.defaultRealm block:^{
+        RLMRealm *realm = [RLMRealm defaultRealm];
+        [realm transactionWithBlock:^{ block(realm); }];
+    }];
+
+    [(RLMNotificationToken *)token invalidate];
+    return captured;
+}
+
+- (void)setUp {
+    [super setUp];
+    @autoreleasepool {
+        RLMRealm *realm = [RLMRealm defaultRealm];
+        [realm transactionWithBlock:^{
+            [realm deleteAllObjects];
+            [EmployeeObject createInRealm:realm withValue:@{@"name": @"Alice", @"age": @30, @"hired": @(YES)}];
+            [EmployeeObject createInRealm:realm withValue:@{@"name": @"Bob",   @"age": @25, @"hired": @(YES)}];
+        }];
+    }
+}
+
+- (void)testModifiedPropertiesNilForInsertOnly {
+    // An insert produces no scalar modification, so modifiedProperties should be nil.
+    RLMCollectionChange *change = [self changeFromBlock:^(RLMRealm *realm) {
+        [EmployeeObject createInRealm:realm withValue:@{@"name": @"Carol", @"age": @40, @"hired": @(YES)}];
+    } results:[EmployeeObject allObjects]];
+    XCTAssertNotNil(change);
+    XCTAssertEqual(change.insertions.count, 1U);
+    XCTAssertNil(change.modifiedProperties);
+}
+
+- (void)testModifiedPropertiesSingleProperty {
+    RLMCollectionChange *change = [self changeFromBlock:^(RLMRealm *realm) {
+        EmployeeObject *alice = [[EmployeeObject objectsInRealm:realm where:@"name = 'Alice'"] firstObject];
+        alice.age = 31;
+    } results:[EmployeeObject allObjects]];
+    XCTAssertNotNil(change);
+    XCTAssertEqual(change.modifications.count, 1U);
+
+    // modifiedProperties: exactly one entry whose value includes "age"
+    XCTAssertEqual(change.modifiedProperties.count, 1U);
+    NSArray *props = change.modifiedProperties.allValues.firstObject;
+    XCTAssertEqualObjects(props, @[@"age"]);
+}
+
+- (void)testModifiedPropertiesMultiplePropertiesOnOneObject {
+    RLMCollectionChange *change = [self changeFromBlock:^(RLMRealm *realm) {
+        EmployeeObject *alice = [[EmployeeObject objectsInRealm:realm where:@"name = 'Alice'"] firstObject];
+        alice.name = @"Alicia";
+        alice.age  = 31;
+    } results:[EmployeeObject allObjects]];
+    XCTAssertNotNil(change);
+    XCTAssertEqual(change.modifications.count, 1U);
+    XCTAssertEqual(change.modifiedProperties.count, 1U);
+
+    NSArray *props = [change.modifiedProperties.allValues.firstObject
+                      sortedArrayUsingSelector:@selector(compare:)];
+    XCTAssertEqualObjects(props, (@[@"age", @"name"]));
+}
+
+@end
+

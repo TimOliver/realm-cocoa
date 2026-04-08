@@ -1470,6 +1470,68 @@ class ResultsTests: RealmCollectionTests<Results<CTTNullableStringObjectWithLink
 
         token.invalidate()
     }
+
+    // MARK: - Modified Property Notifications
+
+    @MainActor
+    func testObserveModifiedPropertiesEmptyOnInitial() {
+        let ex = expectation(description: "initial")
+        let token = collection.observe { (_, props) in
+            XCTAssertTrue(props.isEmpty)
+            ex.fulfill()
+        }
+        waitForExpectations(timeout: 1)
+        token.invalidate()
+    }
+
+    @MainActor
+    func testObserveModifiedPropertiesEmptyOnInsertOnly() {
+        var callCount = 0
+        var ex = expectation(description: "initial")
+        var capturedProps: [Int: [String]] = [:]
+        let token = collection.observe { (change, props) in
+            capturedProps = props
+            callCount += 1
+            ex.fulfill()
+        }
+        waitForExpectations(timeout: 1)
+
+        ex = expectation(description: "insert")
+        addObjectToResults()
+        waitForExpectations(timeout: 1)
+
+        XCTAssertEqual(callCount, 2)
+        XCTAssertTrue(capturedProps.isEmpty, "Insert-only should produce no modifiedPropertiesByIndex")
+        token.invalidate()
+    }
+
+    @MainActor
+    func testObserveModifiedPropertiesPerObject() {
+        var callCount = 0
+        var ex = expectation(description: "initial")
+        var capturedProps: [Int: [String]] = [:]
+        let token = collection.observe { (_, props) in
+            capturedProps = props
+            callCount += 1
+            ex.fulfill()
+        }
+        waitForExpectations(timeout: 1)
+
+        ex = expectation(description: "modification")
+        let realm = self.realm()
+        try! realm.write {
+            collection.first!.stringCol = "modified"
+        }
+        waitForExpectations(timeout: 1)
+
+        XCTAssertEqual(callCount, 2)
+        // Exactly one object modified, its changed properties must include stringCol
+        XCTAssertEqual(capturedProps.count, 1)
+        let changedNames = capturedProps.values.first ?? []
+        XCTAssertTrue(changedNames.contains("stringCol"),
+                      "Expected 'stringCol' in changed properties, got: \(changedNames)")
+        token.invalidate()
+    }
 }
 
 class ResultsWithCustomInitializerTests: TestCase {
