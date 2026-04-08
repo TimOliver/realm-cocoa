@@ -471,15 +471,17 @@ struct CollectionCallbackWrapper {
     id<RLMCollectionPrivate> collection;
     bool ignoreChangesInInitialNotification = true;
 
-    // Keyed by old modification index → {propertyName → value}.
-    // Populated in before() and consumed in after().
-    NSMutableDictionary<NSNumber *, NSDictionary<NSString *, id> *> *oldValuesByIndex;
+    // Cache of the last-delivered collection state: result index → scalar property values.
+    // Built on the initial notification and rebuilt after every write notification so that
+    // the *next* notification can diff against it. Keyed by the index in the collection
+    // at the time the cache was last written, matching the semantics of
+    // CollectionChangeSet::modifications (old indices) on the following notification.
+    NSMutableDictionary<NSNumber *, NSDictionary<NSString *, id> *> *stateCache;
 
     static NSDictionary<NSString *, id> *snapshotScalars(id obj, RLMClassInfo *info) {
         NSMutableDictionary *snap = [NSMutableDictionary new];
         for (RLMProperty *prop in info->rlmObjectSchema.properties) {
-            // Skip collection-type properties — they are live objects and
-            // cannot be meaningfully snapshot-diffed at this level.
+            // Skip collection-type properties — live objects, not directly comparable.
             if (prop.collection) {
                 continue;
             }
@@ -489,28 +491,26 @@ struct CollectionCallbackWrapper {
         return snap;
     }
 
-    void before(realm::CollectionChangeSet const& changes) {
-        @autoreleasepool {
-            if (changes.modifications.empty()) {
-                return;
-            }
-            RLMClassInfo *info = collection.objectInfo;
-            if (!info) {
-                return;
-            }
-            oldValuesByIndex = [NSMutableDictionary new];
-            for (auto idx : changes.modifications.as_indexes()) {
-                id obj = [(id<RLMCollection>)collection objectAtIndex:idx];
-                oldValuesByIndex[@(idx)] = snapshotScalars(obj, info);
-            }
+    NSMutableDictionary *buildCache(RLMClassInfo *info) {
+        NSMutableDictionary *cache = [NSMutableDictionary new];
+        NSUInteger count = [(id<RLMCollection>)collection count];
+        for (NSUInteger i = 0; i < count; i++) {
+            id obj = [(id<RLMCollection>)collection objectAtIndex:i];
+            cache[@(i)] = snapshotScalars(obj, info);
         }
+        return cache;
     }
 
-    void after(realm::CollectionChangeSet const& changes) {
+    void operator()(realm::CollectionChangeSet const& changes) {
         @autoreleasepool {
             if (ignoreChangesInInitialNotification) {
                 ignoreChangesInInitialNotification = false;
-                oldValuesByIndex = nil;
+                // Snapshot the initial collection state so the first write
+                // notification can diff against it.
+                RLMClassInfo *info = collection.objectInfo;
+                if (info) {
+                    stateCache = buildCache(info);
+                }
                 block(collection, nil, nil);
                 return;
             }
@@ -520,42 +520,45 @@ struct CollectionCallbackWrapper {
             }
             if (!changes.collection_root_was_deleted || !changes.deletions.empty()) {
                 NSMutableDictionary<NSNumber *, NSArray<NSString *> *> *propsByIndex;
-                if (oldValuesByIndex.count > 0) {
-                    RLMClassInfo *info = collection.objectInfo;
-                    if (info) {
-                        propsByIndex = [NSMutableDictionary new];
-                        // modifications (old indices) and modifications_new (new indices)
-                        // always have the same count and refer to the same objects.
-                        auto oldIt = changes.modifications.as_indexes().begin();
-                        auto newIt = changes.modifications_new.as_indexes().begin();
-                        auto end   = changes.modifications.as_indexes().end();
-                        for (; oldIt != end; ++oldIt, ++newIt) {
-                            NSDictionary *snap = oldValuesByIndex[@(*oldIt)];
-                            if (!snap) continue;
-                            id obj = [(id<RLMCollection>)collection objectAtIndex:*newIt];
-                            NSMutableArray *changed = [NSMutableArray new];
-                            for (NSString *name in snap) {
-                                id newVal = [obj valueForKey:name] ?: NSNull.null;
-                                if (![newVal isEqual:snap[name]]) {
-                                    [changed addObject:name];
-                                }
-                            }
-                            if (changed.count) {
-                                propsByIndex[@(*newIt)] = changed;
+                RLMClassInfo *info = collection.objectInfo;
+                if (stateCache && info && !changes.modifications.empty()) {
+                    propsByIndex = [NSMutableDictionary new];
+                    // modifications      = old indices (match stateCache keys)
+                    // modifications_new  = new indices (use to read current values)
+                    auto oldIt = changes.modifications.as_indexes().begin();
+                    auto newIt = changes.modifications_new.as_indexes().begin();
+                    auto end   = changes.modifications.as_indexes().end();
+                    for (; oldIt != end; ++oldIt, ++newIt) {
+                        NSDictionary *oldSnap = stateCache[@(*oldIt)];
+                        if (!oldSnap) continue;
+                        id obj = [(id<RLMCollection>)collection objectAtIndex:*newIt];
+                        NSMutableArray *changed = [NSMutableArray new];
+                        for (NSString *name in oldSnap) {
+                            id newVal = [obj valueForKey:name] ?: NSNull.null;
+                            if (![newVal isEqual:oldSnap[name]]) {
+                                [changed addObject:name];
                             }
                         }
+                        if (changed.count) {
+                            propsByIndex[@(*newIt)] = changed;
+                        }
+                    }
+                    if (!propsByIndex.count) {
+                        propsByIndex = nil;
                     }
                 }
-                oldValuesByIndex = nil;
+                // Rebuild the cache for the new collection state so the next
+                // notification has an accurate baseline.
+                if (info) {
+                    stateCache = buildCache(info);
+                }
                 block(collection,
                       [[RLMCollectionChange alloc] initWithChanges:changes
                                                  propertiesByIndex:propsByIndex],
                       nil);
             }
             else {
-                // Notification suppressed (collection root deleted, no element deletions).
-                // Still release snapshot memory since no further diff will be produced.
-                oldValuesByIndex = nil;
+                stateCache = nil;
             }
         }
     }
