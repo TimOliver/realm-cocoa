@@ -524,6 +524,12 @@ public protocol RealmCollection: RealmCollectionBase, Equatable where Iterator =
                  on queue: DispatchQueue?,
                  _ block: @escaping (RealmCollectionChange<Self>) -> Void) -> NotificationToken
 
+    /// Observe changes with per-object property-level diff information.
+    func observe(keyPaths: [String]?,
+                 on queue: DispatchQueue?,
+                 _ block: @escaping (_ change: RealmCollectionChange<Self>,
+                                     _ modifiedProperties: [Int: [String]]) -> Void) -> NotificationToken
+
 #if compiler(<6)
     /**
     Registers a block to be called each time the collection changes.
@@ -1224,6 +1230,14 @@ public extension RealmCollection {
     func observe(keyPaths: [String]? = nil,
                  on queue: DispatchQueue? = nil,
                  _ block: @escaping (RealmCollectionChange<Self>) -> Void) -> NotificationToken {
+        return self.observe(keyPaths: keyPaths, on: queue, block)
+    }
+
+    /// Observe changes with per-object property-level diff information.
+    func observe(keyPaths: [String]? = nil,
+                 on queue: DispatchQueue? = nil,
+                 _ block: @escaping (_ change: RealmCollectionChange<Self>,
+                                     _ modifiedProperties: [Int: [String]]) -> Void) -> NotificationToken {
         return self.observe(keyPaths: keyPaths, on: queue, block)
     }
 
