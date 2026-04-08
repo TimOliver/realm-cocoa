@@ -2198,5 +2198,30 @@ static void ExpectMixedArrayChange(RLMTestCase<ChangesetTestCase> *self, NSArray
     XCTAssertEqualObjects(props, (@[@"age", @"name"]));
 }
 
+- (void)testModifiedPropertiesPerObjectGranularity {
+    // Key correctness test: Alice has only 'age' changed, Bob has only 'name' changed.
+    // Each object's entry in modifiedProperties must reflect only its own changes,
+    // not the union across all modified objects.
+    RLMResults *results = [EmployeeObject allObjectsSortedByProperty:@"name" ascending:YES];
+    RLMCollectionChange *change = [self changeFromBlock:^(RLMRealm *realm) {
+        [[EmployeeObject objectsInRealm:realm where:@"name = 'Alice'"] firstObject].age = 31;
+        [[EmployeeObject objectsInRealm:realm where:@"name = 'Bob'"] firstObject].name = @"Robert";
+    } results:results];
+
+    XCTAssertNotNil(change);
+    XCTAssertEqual(change.modifications.count, 2U);
+    XCTAssertEqual(change.modifiedProperties.count, 2U);
+
+    // Collect all per-object property sets; each must have exactly one entry.
+    NSMutableSet *union_ = [NSMutableSet new];
+    for (NSArray *props in change.modifiedProperties.allValues) {
+        XCTAssertEqual(props.count, 1U,
+                       @"Each object should report only its own changed property, got: %@", props);
+        [union_ addObjectsFromArray:props];
+    }
+    // The union across both objects covers both changed fields.
+    XCTAssertEqualObjects(union_, ([NSSet setWithObjects:@"age", @"name", nil]));
+}
+
 @end
 
