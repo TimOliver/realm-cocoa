@@ -552,6 +552,11 @@ struct CollectionCallbackWrapper {
                                                  propertiesByIndex:propsByIndex],
                       nil);
             }
+            else {
+                // Notification suppressed (collection root deleted, no element deletions).
+                // Still release snapshot memory since no further diff will be produced.
+                oldValuesByIndex = nil;
+            }
         }
     }
 };
@@ -629,7 +634,7 @@ RLMNotificationToken *RLMAddNotificationBlock(id c, id block,
 
 realm::CollectionChangeCallback RLMWrapCollectionChangeCallback(void (^block)(id, id, NSError *),
                                                                 id collection, bool skipFirst) {
-    return CollectionCallbackWrapper{block, collection, skipFirst};
+    return CollectionCallbackWrapper{block, (id<RLMCollectionPrivate>)collection, skipFirst};
 }
 @end
 
