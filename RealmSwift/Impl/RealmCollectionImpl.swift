@@ -120,6 +120,31 @@ extension RealmCollectionImpl {
         return collection.addNotificationBlock(wrapped, keyPaths: keyPaths, queue: queue)
     }
 
+    /// Observe changes with per-object property-level diff information.
+    ///
+    /// `modifiedProperties` maps each index from `modifications` (in the
+    /// new collection) to the scalar property names that changed on that object.
+    /// Collection-type properties (`List`, `Set`, `Map`) are excluded.
+    public func observe(keyPaths: [String]? = nil,
+                        on queue: DispatchQueue? = nil,
+                        _ block: @escaping (_ change: RealmCollectionChange<Self>,
+                                            _ modifiedProperties: [Int: [String]]) -> Void) -> NotificationToken {
+        var col: Self?
+        func wrapped(collection: RLMCollection?, change: RLMCollectionChange?, error: Error?) {
+            if col == nil, let collection = collection {
+                col = self.collection === collection ? self : Self(collection: collection)
+            }
+            var propsByIndex: [Int: [String]] = [:]
+            if let byIndex = change?.modifiedProperties as? [NSNumber: [String]] {
+                for (key, names) in byIndex {
+                    propsByIndex[key.intValue] = names
+                }
+            }
+            block(.init(value: col, change: change, error: error), propsByIndex)
+        }
+        return collection.addNotificationBlock(wrapped, keyPaths: keyPaths, queue: queue)
+    }
+
 #if compiler(<6)
     @available(macOS 10.15, tvOS 13.0, iOS 13.0, watchOS 6.0, *)
     @_unsafeInheritExecutor
